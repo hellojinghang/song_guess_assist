@@ -1,10 +1,9 @@
-
 import streamlit as st
 from pytube import YouTube
-from pydub import AudioSegment
 import random
 import os
 import uuid
+import subprocess
 
 st.set_page_config(page_title="🎵 Song Guess Game", layout="centered")
 st.title("🎵 Song Guess Assistance Game")
@@ -22,6 +21,7 @@ if yt_url:
             audio_file_path = f"{uuid.uuid4()}.mp4"
             audio_stream.download(filename=audio_file_path)
             st.session_state["audio_path"] = audio_file_path
+            st.session_state["duration"] = yt.length  # seconds
 
     except Exception as e:
         st.error(f"Error loading video: {e}")
@@ -29,18 +29,27 @@ if yt_url:
 if "audio_path" in st.session_state:
     seconds = st.slider("Choose how many seconds to play:", 3, 30, 10)
 
-    audio = AudioSegment.from_file(st.session_state["audio_path"])
-    duration_ms = len(audio)
-
     if st.button("🎧 Play Random Snippet"):
-        start_ms = random.randint(0, duration_ms - (seconds * 1000))
-        snippet = audio[start_ms:start_ms + seconds * 1000]
-
+        duration = st.session_state["duration"]
+        start_time = random.randint(0, max(1, duration - seconds))
         snippet_path = f"snippet_{uuid.uuid4()}.mp3"
-        snippet.export(snippet_path, format="mp3")
-        st.audio(snippet_path)
 
-        st.session_state["last_snippet"] = snippet_path
+        # Use ffmpeg to extract a snippet
+        command = [
+            "ffmpeg",
+            "-y",
+            "-ss", str(start_time),
+            "-t", str(seconds),
+            "-i", st.session_state["audio_path"],
+            "-vn",
+            "-acodec", "libmp3lame",
+            snippet_path
+        ]
+        subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        if os.path.exists(snippet_path):
+            st.audio(snippet_path)
+            st.session_state["last_snippet"] = snippet_path
 
     if "last_snippet" in st.session_state:
         st.download_button("⬇ Download Snippet", data=open(st.session_state["last_snippet"], "rb"), file_name="guess_snippet.mp3")
